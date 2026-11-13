@@ -1,0 +1,54 @@
+# GBrain on the VTC dev server, run by Komodo (stack "gbrain", branch vtc-deploy of
+# the fork kevinle128/gbrain). Komodo clones the branch, writes the stack environment
+# next to this file and builds the image on the server; the image is on no registry,
+# so `compose pull` skips it. To upgrade: merge an upstream tag into vtc-deploy, set
+# GBRAIN_BUILD_REVISION to the new short commit and deploy the stack.
+#
+# Stack environment ([[NAME]] = secret Komodo Variable):
+#   POSTGRES_PASSWORD             [[GBRAIN_POSTGRES_PASSWORD]]
+#   GBRAIN_ADMIN_BOOTSTRAP_TOKEN  [[GBRAIN_ADMIN_BOOTSTRAP_TOKEN]]
+#   GBRAIN_PUBLIC_URL             [[GBRAIN_PUBLIC_URL]] (must stay http://localhost:3131)
+#   OPENAI_API_KEY                [[GBRAIN_OPENAI_API_KEY]]
+#   GBRAIN_BUILD_REVISION         short commit of the deployed code (image tag)
+#   GBRAIN_TAILNET_IP             tailnet address that also serves port 3131
+name: gbrain
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gbrain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: gbrain
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U gbrain -d gbrain
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gbrain:
+    build:
+      context: ../..
+    image: gbrain:${GBRAIN_BUILD_REVISION:-local}
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GBRAIN_DATABASE_URL: postgres://gbrain:${POSTGRES_PASSWORD}@postgres:5432/gbrain
+      GBRAIN_PUBLIC_URL: ${GBRAIN_PUBLIC_URL}
+      GBRAIN_ADMIN_BOOTSTRAP_TOKEN: ${GBRAIN_ADMIN_BOOTSTRAP_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - gbrain-home:/data
+    ports:
+      - "127.0.0.1:3131:3131"
+      - "${GBRAIN_TAILNET_IP:-100.88.18.71}:3131:3131"
+
+volumes:
+  pgdata:
+  gbrain-home:
